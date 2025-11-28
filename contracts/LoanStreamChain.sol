@@ -1,55 +1,21 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
-
-/**
- * @title LoanStream Chain
- * @dev A decentralized lending and borrowing protocol with streaming loan capabilities
- * @notice This contract enables users to deposit collateral, borrow assets, and repay loans
- */
-contract Project {
-    
-    // State Variables
+State Variables
     address public owner;
-    uint256 public collateralFactor; // Percentage of collateral value that can be borrowed (in basis points, e.g., 7500 = 75%)
-    uint256 public liquidationThreshold; // Threshold for liquidation (in basis points, e.g., 8500 = 85%)
-    uint256 public baseInterestRate; // Base annual interest rate (in basis points, e.g., 500 = 5%)
-    uint256 public totalLiquidity; // Total liquidity available in the protocol
-    uint256 public totalBorrowed; // Total amount currently borrowed
-    
-    // Structs
+    uint256 public collateralFactor; Threshold for liquidation (in basis points, e.g., 8500 = 85%)
+    uint256 public baseInterestRate; Total liquidity available in the protocol
+    uint256 public totalBorrowed; Structs
     struct Loan {
-        uint256 principal; // Original loan amount
-        uint256 collateral; // Collateral amount deposited
-        uint256 interestAccrued; // Interest accumulated
-        uint256 startTime; // Timestamp when loan was taken
-        uint256 lastUpdateTime; // Last time interest was calculated
-        bool isActive; // Loan status
+        uint256 principal; Collateral amount deposited
+        uint256 interestAccrued; Timestamp when loan was taken
+        uint256 lastUpdateTime; Loan status
     }
     
     struct LenderInfo {
-        uint256 depositAmount; // Amount deposited by lender
-        uint256 depositTime; // Time of deposit
-        uint256 interestEarned; // Interest earned by lender
-    }
+        uint256 depositAmount; Time of deposit
+        uint256 interestEarned; Mappings
+    mapping(address => uint256) public collateralBalances; User active loans
+    mapping(address => LenderInfo) public lenders; Whitelisted addresses for enhanced features
     
-    // Mappings
-    mapping(address => uint256) public collateralBalances; // User collateral balances
-    mapping(address => Loan) public loans; // User active loans
-    mapping(address => LenderInfo) public lenders; // Lender information
-    mapping(address => bool) public isWhitelisted; // Whitelisted addresses for enhanced features
-    
-    // Events
-    event CollateralDeposited(address indexed user, uint256 amount, uint256 timestamp);
-    event CollateralWithdrawn(address indexed user, uint256 amount, uint256 timestamp);
-    event LoanIssued(address indexed borrower, uint256 loanAmount, uint256 collateralAmount, uint256 timestamp);
-    event LoanRepaid(address indexed borrower, uint256 amount, uint256 interestPaid, uint256 timestamp);
-    event LoanLiquidated(address indexed borrower, uint256 collateralSeized, uint256 timestamp);
-    event LiquidityAdded(address indexed lender, uint256 amount, uint256 timestamp);
-    event LiquidityWithdrawn(address indexed lender, uint256 amount, uint256 interest, uint256 timestamp);
-    event CollateralFactorUpdated(uint256 newFactor, uint256 timestamp);
-    event InterestRateUpdated(uint256 newRate, uint256 timestamp);
-    
-    // Modifiers
+    Modifiers
     modifier onlyOwner() {
         require(msg.sender == owner, "Only owner can call this function");
         _;
@@ -65,12 +31,8 @@ contract Project {
         _;
     }
     
-    // Constructor
-    constructor() {
-        owner = msg.sender;
-        collateralFactor = 7500; // 75% LTV ratio
-        liquidationThreshold = 8500; // 85% liquidation threshold
-        baseInterestRate = 500; // 5% annual interest rate
+    75% LTV ratio
+        liquidationThreshold = 8500; 5% annual interest rate
     }
     
     /**
@@ -190,14 +152,7 @@ contract Project {
         uint256 interestPaid = 0;
         
         if (msg.value >= totalDebt) {
-            // Full repayment
-            interestPaid = loan.interestAccrued;
-            totalBorrowed -= loan.principal;
-            loan.principal = 0;
-            loan.interestAccrued = 0;
-            loan.isActive = false;
-        } else {
-            // Partial repayment
+            Partial repayment
             if (msg.value <= loan.interestAccrued) {
                 loan.interestAccrued -= msg.value;
                 interestPaid = msg.value;
@@ -247,124 +202,7 @@ contract Project {
         loan.interestAccrued = 0;
         loan.isActive = false;
         
-        // Transfer seized collateral to liquidator (could be enhanced with liquidation rewards)
-        (bool success, ) = payable(msg.sender).call{value: collateralToSeize}("");
-        require(success, "Transfer failed");
-        
-        emit LoanLiquidated(borrower, collateralToSeize, block.timestamp);
-    }
-    
-    /**
-     * @dev Updates the interest accrued for a loan
-     * @param borrower Address of the borrower
-     */
-    function _updateLoanInterest(address borrower) internal {
-        if (!loans[borrower].isActive) return;
-        
-        uint256 interest = _calculateInterest(borrower);
-        loans[borrower].interestAccrued += interest;
-        loans[borrower].lastUpdateTime = block.timestamp;
-    }
-    
-    /**
-     * @dev Calculates interest for a loan
-     * @param borrower Address of the borrower
-     */
-    function _calculateInterest(address borrower) internal view returns (uint256) {
-        Loan memory loan = loans[borrower];
-        if (!loan.isActive) return 0;
-        
-        uint256 timeElapsed = block.timestamp - loan.lastUpdateTime;
-        uint256 annualInterest = (loan.principal * baseInterestRate) / 10000;
-        uint256 interest = (annualInterest * timeElapsed) / 365 days;
-        
-        return interest;
-    }
-    
-    /**
-     * @dev Updates interest earned by a lender
-     * @param lender Address of the lender
-     */
-    function _updateLenderInterest(address lender) internal {
-        if (lenders[lender].depositAmount == 0) return;
-        
-        uint256 timeElapsed = block.timestamp - lenders[lender].depositTime;
-        uint256 annualInterest = (lenders[lender].depositAmount * baseInterestRate) / 10000;
-        uint256 interest = (annualInterest * timeElapsed) / 365 days;
-        
-        lenders[lender].interestEarned += interest;
-        lenders[lender].depositTime = block.timestamp;
-    }
-    
-    /**
-     * @dev Returns the current debt of a borrower
-     * @param borrower Address of the borrower
-     */
-    function getCurrentDebt(address borrower) external view returns (uint256) {
-        if (!loans[borrower].isActive) return 0;
-        
-        uint256 currentInterest = _calculateInterest(borrower);
-        return loans[borrower].principal + loans[borrower].interestAccrued + currentInterest;
-    }
-    
-    /**
-     * @dev Returns the maximum borrowable amount for a user
-     * @param user Address of the user
-     */
-    function getMaxBorrowAmount(address user) external view returns (uint256) {
-        if (loans[user].isActive) return 0;
-        
-        uint256 maxBorrow = (collateralBalances[user] * collateralFactor) / 10000;
-        uint256 availableLiquidity = totalLiquidity - totalBorrowed;
-        
-        return maxBorrow > availableLiquidity ? availableLiquidity : maxBorrow;
-    }
-    
-    /**
-     * @dev Owner function to update collateral factor
-     * @param newFactor New collateral factor (in basis points)
-     */
-    function setCollateralFactor(uint256 newFactor) external onlyOwner {
-        require(newFactor > 0 && newFactor <= 9000, "Invalid collateral factor");
-        collateralFactor = newFactor;
-        emit CollateralFactorUpdated(newFactor, block.timestamp);
-    }
-    
-    /**
-     * @dev Owner function to update base interest rate
-     * @param newRate New interest rate (in basis points)
-     */
-    function setInterestRate(uint256 newRate) external onlyOwner {
-        require(newRate > 0 && newRate <= 5000, "Invalid interest rate");
-        baseInterestRate = newRate;
-        emit InterestRateUpdated(newRate, block.timestamp);
-    }
-    
-    /**
-     * @dev Owner function to update liquidation threshold
-     * @param newThreshold New liquidation threshold (in basis points)
-     */
-    function setLiquidationThreshold(uint256 newThreshold) external onlyOwner {
-        require(newThreshold > collateralFactor && newThreshold <= 9500, "Invalid threshold");
-        liquidationThreshold = newThreshold;
-    }
-    
-    /**
-     * @dev Get protocol statistics
-     */
-    function getProtocolStats() external view returns (
-        uint256 _totalLiquidity,
-        uint256 _totalBorrowed,
-        uint256 _availableLiquidity,
-        uint256 _utilizationRate
-    ) {
-        _totalLiquidity = totalLiquidity;
-        _totalBorrowed = totalBorrowed;
-        _availableLiquidity = totalLiquidity - totalBorrowed;
-        _utilizationRate = totalLiquidity > 0 ? (totalBorrowed * 10000) / totalLiquidity : 0;
-    }
-    
-    // Fallback and receive functions
+        Fallback and receive functions
     receive() external payable {
         revert("Use addLiquidity or depositCollateral functions");
     }
@@ -373,3 +211,6 @@ contract Project {
         revert("Function does not exist");
     }
 }
+// 
+Contract End
+// 
